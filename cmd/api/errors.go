@@ -5,11 +5,13 @@ import (
 	"net/http"
 )
 
-// The logError() method is a generic helper for logging an error message. Later in the
-// book we'll upgrade this to use structured logging, and record additional information
-// about the request including the HTTP method and URL.
 func (app *application) logError(r *http.Request, err error) {
 	app.logger.Println(err)
+}
+
+func (app *application) editConflictResponse(w http.ResponseWriter, r *http.Request) {
+	message := "unable to update the record due to an edit conflict, please try again"
+	app.errorResponse(w, r, http.StatusConflict, message)
 }
 
 func (app *application) badRequestResponse(w http.ResponseWriter, r *http.Request, err error) {
