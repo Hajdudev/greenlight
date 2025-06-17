@@ -39,9 +39,9 @@ func ValidateMovie(v *validator.Validator, movie *Movie) {
 	v.Check(validator.Unique(movie.Genres), "genres", "must not contain duplicate values")
 }
 
-func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, error) {
+func (m MovieModel) GetAll(title string, genres []string, filters Filters) ([]*Movie, Metadata, error) {
 	query := fmt.Sprintf(`
-SELECT id, created_at, title, year, runtime, genres, version
+SELECT count(*) OVER(), id, created_at, title, year, runtime, genres, version
 FROM movies
 WHERE (to_tsvector('simple', title) @@ plainto_tsquery('simple', $1) OR $1 = '')
 AND (genres @> $2 OR $2 = '{}')
@@ -49,16 +49,18 @@ ORDER BY %s %s, id ASC
 LIMIT $3 OFFSET $4`, filters.sortColumn(), filters.sortDirection())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	args := []interface{}{title, pq.Array(genres), filters.limit(), filters.offset()}
+	args := []any{title, pq.Array(genres), filters.limit(), filters.offset()}
 	rows, err := m.DB.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
 	defer rows.Close()
+	totalRecords := 0
 	movies := []*Movie{}
 	for rows.Next() {
 		var movie Movie
 		err := rows.Scan(
+			&totalRecords,
 			&movie.ID,
 			&movie.CreatedAt,
 			&movie.Title,
@@ -68,14 +70,15 @@ LIMIT $3 OFFSET $4`, filters.sortColumn(), filters.sortDirection())
 			&movie.Version,
 		)
 		if err != nil {
-			return nil, err
+			return nil, Metadata{}, err
 		}
 		movies = append(movies, &movie)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, Metadata{}, err
 	}
-	return movies, nil
+	metadata := calculateMetadata(totalRecords, filters.Page, filters.PageSize)
+	return movies, metadata, nil
 }
 
 func (m MovieModel) Insert(movie *Movie) error {
@@ -83,7 +86,7 @@ func (m MovieModel) Insert(movie *Movie) error {
 INSERT INTO movies (title, year, runtime, genres)
 VALUES ($1, $2, $3, $4)
 RETURNING id, created_at, version`
-	args := []interface{}{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
+	args := []any{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return m.DB.QueryRowContext(ctx, query, args...).Scan(&movie.ID, &movie.CreatedAt, &movie.Version)
@@ -93,7 +96,6 @@ func (m MovieModel) Get(id int64) (*Movie, error) {
 	if id < 1 {
 		return nil, ErrRecordNotFound
 	}
-	// Remove the pg_sleep(10) clause.
 	query := `
 SELECT id, created_at, title, year, runtime, genres, version
 FROM movies
@@ -101,7 +103,6 @@ WHERE id = $1`
 	var movie Movie
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	// Remove &[]byte{} from the first Scan() destination.
 	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&movie.ID,
 		&movie.CreatedAt,
