@@ -137,11 +137,8 @@ RETURNING version`
 		movie.ID,
 		movie.Version,
 	}
-	// Create a context with a 3-second timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	// Use QueryRowContext() and pass the context as the first argument.
-	// Use QueryRowContext() and pass the context as the first argument.
 	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&movie.Version)
 	if err != nil {
 		switch {
@@ -161,10 +158,8 @@ func (m MovieModel) Delete(id int64) error {
 	query := `
 DELETE FROM movies
 WHERE id = $1`
-	// Create a context with a 3-second timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	// Use ExecContext() and pass the context as the first argument.
 	result, err := m.DB.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
